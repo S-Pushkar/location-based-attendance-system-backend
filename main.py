@@ -38,6 +38,13 @@ class Admin(BaseModel):
     lname: str = Field(..., description="Last name of the admin")
     password: str = Field(..., description="Unhashed Password of the admin")
 
+"""
+Sample request in curl:
+
+curl -X POST "http://127.0.0.1:8000/auth/register-admin" \
+-H "Content-Type: application/json" \
+-d '{"email": "abcd@gmail.com", "fname": "ab", "lname": "cd", "password": "123"}' 
+"""
 @app.post("/auth/register-admin")
 def register_admin(admin: Admin):
     email = admin.email.lower()     # Lowercase the email to avoid maintain consistency
