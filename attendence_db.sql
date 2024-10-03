@@ -42,8 +42,8 @@ create table AttendeesLocations(
 
 create table SessionLocations(
 	Address varchar(100),
-	Longitude float(9,6),
-	Latitude float(8,6),
+	Longitude float(9,6), /* -180 to 180 */
+	Latitude float(8,6), /* -90 to 90 */
 	SessionID char(10),
 	foreign key(SessionID) references Sessions(SessionID)
 	);
