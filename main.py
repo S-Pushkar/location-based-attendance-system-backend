@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 import mysql.connector
 import bcrypt
 import os
+from jose import jwt
+from datetime import datetime, timedelta, timezone
 
 app = FastAPI()
 
@@ -13,6 +15,8 @@ SQL_HOST = os.getenv("SQL_HOST")
 SQL_USER = os.getenv("SQL_USER")
 SQL_PASSWORD = os.getenv("SQL_PASSWORD")
 SQL_DB = os.getenv("SQL_DB")
+JWT_SECRET = os.getenv("JWT_SECRET")
+ALGORITHM = 'HS256'
 
 mydb = mysql.connector.connect(
     host=SQL_HOST,
@@ -31,6 +35,13 @@ def hash_password(password: str):
     salt = bcrypt.gensalt()
     hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
     return hashed_password.decode('utf-8')
+
+def create_jwt_token(data: dict):
+    to_encode = data.copy()
+    to_encode.update({"exp": datetime.now(timezone.utc) + timedelta(days=14)})
+
+    encoded_jwt = jwt.encode(to_encode, JWT_SECRET, algorithm=ALGORITHM)
+    return encoded_jwt
 
 class Admin(BaseModel):
     email: EmailStr = Field(..., description="Email of the admin")
@@ -63,4 +74,6 @@ def register_admin(admin: Admin):
     control.execute("insert into Admins (Email, FirstName, LastName, Passwd) values (%s, %s, %s, %s);", (email, fname, lname, hashed_passwd))
     mydb.commit()
 
-    return {"Admin": "Registered"}
+    access_token = create_jwt_token({"sub": email, "role": "admin", "fname": fname, "lname": lname})
+
+    return {"access_token": access_token}
