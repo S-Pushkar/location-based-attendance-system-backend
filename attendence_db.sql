@@ -8,7 +8,7 @@ create table Admins(
 	Email varchar(50),
 	FirstName varchar(15),
 	LastName varchar(15),
-	Passwd char(64) /*hashed*/
+	Passwd char(64)
 	);
 	
 create table Sessions(
@@ -27,9 +27,7 @@ create table Attendees(
 	Fname varchar(15),
 	Lname varchar(15),
 	Passwd char(64), /*hashed*/
-	Address varchar(100), /*expand later to AddressLine1, AddressLine2, State, City, Street, HouseNo and Zip if needed*/
-	SessionID INT,
-	foreign key(SessionID) references Sessions(SessionID)
+	Address varchar(100)/*expand later to AddressLine1, AddressLine2, State, City, Street, HouseNo and Zip if needed*/
 	);
 
 create table AttendeesLocations(
@@ -48,3 +46,10 @@ create table SessionLocations(
 	foreign key(SessionID) references Sessions(SessionID)
 	);
 	
+create table Attended_By(
+	SessionID INT,
+	UniqueID INT,
+	primary key(SessionID, UniqueID),
+	foreign key(SessionID) references Sessions(SessionID),
+	foreign key(UniqueID) references Attendees(UniqueID)
+	);
