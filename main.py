@@ -39,7 +39,6 @@ def hash_password(password: str):
 def create_jwt_token(data: dict):
     to_encode = data.copy()
     to_encode.update({"exp": datetime.now(timezone.utc) + timedelta(days=14)})
-
     encoded_jwt = jwt.encode(to_encode, JWT_SECRET, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -74,6 +73,33 @@ def register_admin(admin: Admin):
     control.execute("insert into Admins (Email, FirstName, LastName, Passwd) values (%s, %s, %s, %s);", (email, fname, lname, hashed_passwd))
     mydb.commit()
 
-    access_token = create_jwt_token({"sub": email, "role": "admin", "fname": fname, "lname": lname})
+    access_token = create_jwt_token({"email": email, "role": "admin", "fname": fname, "lname": lname})
+    return {"access_token": access_token}
 
+class Attendee(BaseModel):
+    email: EmailStr = Field(..., description="Email of the attendee")
+    fname: str = Field(..., description="First name of the attendee")
+    lname: str = Field(..., description="Last name of the attendee")
+    password: str = Field(..., description="Unhashed Password of the attendee")
+    address: str = Field(..., description="Address of the attendee")
+
+@app.post("/auth/register-attendee")
+def register_attendee(attendee: Attendee):
+    email = attendee.email.lower()
+    fname = attendee.fname
+    lname = attendee.lname
+    password = attendee.password
+    address = attendee.address
+
+    control.execute("select 1 from Attendees where Email = %s;", (email,))
+    existing_attendees = control.fetchone()
+    if existing_attendees:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Attendee already exists")
+    
+    hashed_passwd = hash_password(password)
+
+    control.execute("insert into Attendees (Email, FName, LName, Passwd, Address) values (%s, %s, %s, %s, %s);", (email, fname, lname, hashed_passwd, address))
+    mydb.commit()
+
+    access_token = create_jwt_token({"email": email, "role": "attendee", "fname": fname, "lname": lname})
     return {"access_token": access_token}
