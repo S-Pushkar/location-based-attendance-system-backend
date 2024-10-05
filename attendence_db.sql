@@ -8,7 +8,8 @@ create table Admins(
 	Email varchar(50),
 	FirstName varchar(15),
 	LastName varchar(15),
-	Passwd char(64)
+	Passwd char(64),
+	Salt char(40)
 	);
 	
 create table Sessions(
@@ -27,6 +28,7 @@ create table Attendees(
 	Fname varchar(15),
 	Lname varchar(15),
 	Passwd char(64), /*hashed*/
+	Salt char(40),
 	Address varchar(100) /*expand later to AddressLine1, AddressLine2, State, City, Street, HouseNo and Zip if needed*/
 	);
 

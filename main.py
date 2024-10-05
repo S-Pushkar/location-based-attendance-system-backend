@@ -6,12 +6,11 @@ import bcrypt
 import os
 from jose import jwt
 from datetime import datetime, timedelta, timezone
+import base64
 
 app = FastAPI()
 
 load_dotenv('.env.local')
-
-salt = bcrypt.gensalt()
 
 SQL_HOST = os.getenv("SQL_HOST")
 SQL_USER = os.getenv("SQL_USER")
@@ -38,6 +37,13 @@ def robots_begone():
     return {"User-agent":"*","Disallow":"/"}
 
 def hash_password(password: str):
+    salt = bcrypt.gensalt()
+    print(salt)
+    hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
+    return (hashed_password.decode('utf-8'),base64.b64encode(salt).decode('utf-8'))
+    
+def rehash(password: str, salt64: str):
+    salt=base64.b64decode(salt64.encode('utf-8'))
     hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
     return hashed_password.decode('utf-8')
 
@@ -74,8 +80,8 @@ def register_admin(admin: Admin):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Admin already exists")
     
     hashed_passwd = hash_password(password)
-    
-    control.execute("insert into Admins (Email, FirstName, LastName, Passwd) values (%s, %s, %s, %s);", (email, fname, lname, hashed_passwd))
+    print(len(hashed_passwd[1]))
+    control.execute("insert into Admins (Email, FirstName, LastName, Passwd, Salt) values (%s, %s, %s, %s, %s);", (email, fname, lname, hashed_passwd[0], hashed_passwd[1]))
     mydb.commit()
 
     access_token = create_jwt_token({"email": email, "role": "admin", "fname": fname, "lname": lname})
@@ -103,7 +109,7 @@ def register_attendee(attendee: Attendee):
     
     hashed_passwd = hash_password(password)
 
-    control.execute("insert into Attendees (Email, FName, LName, Passwd, Address) values (%s, %s, %s, %s, %s);", (email, fname, lname, hashed_passwd, address))
+    control.execute("insert into Attendees (Email, FName, LName, Passwd, Salt, Address) values (%s, %s, %s, %s, %s, %s);", (email, fname, lname, hashed_passwd[0], hashed_passwd[1], address))
     mydb.commit()
 
     access_token = create_jwt_token({"email": email, "role": "attendee", "fname": fname, "lname": lname})
@@ -116,17 +122,15 @@ class login(BaseModel):
 @app.post("/")
 def login(details: login):
     email=details.email.lower()
-    password=hash_password(details.password)
-    control.execute("select AdminID, FirstName, LastName from Admins where Email=%s and Passwd=%s;", (email,password))
-    match=control.fetchone()
-    if match:
-        access_token=create_jwt_token({"email":email, "role":"admin","fname":match[1],"lname":match[2]})
-        return {"access_token":access_token}
-    else:
-        control.execute("select UniqueID, Fname, Lname from Attendees where Email=%s and Passwd=%s;", (email,password))
-        match=control.fetchone()
-        if match:
+    password=details.password
+    control.execute("select AdminID, FirstName, LastName, Passwd, Salt from Admins where Email=%s;", (email,))
+    for match in control:
+        if rehash(password,match[4])==match[3]:
+            access_token=create_jwt_token({"email":email, "role":"admin","fname":match[1],"lname":match[2]})
+            return {"access_token":access_token}
+    control.execute("select UniqueID, Fname, Lname, Passwd, Salt from Attendees where Email=%s and Passwd=%s;", (email,password))
+    for match in control:
+        if rehash(password,match[4])==match[3]:
             access_token=create_jwt_token({"email":email, "role":"attendee","fname":match[1],"lname":match[2]})
             return {"access_token":access_token}
-        else:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Please first sign up")
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Please first sign up")
