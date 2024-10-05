@@ -233,3 +233,15 @@ def join_session(details: join_sess):
     mydb.commit()
     
     return {"result":"Session joined successfully"}
+    
+class curr_loc(BaseModel):
+    tok: str = Field(..., description="JWT token from the client") 
+    longitude: confloat(ge=-180, le=180) = Field(..., description="Longitude of a current attnedee location")
+    latitude: confloat(ge=-90, le=90) = Field(..., description="Latitude of a current attendee location")
+
+@app.post("/current-location")
+def store_current_location(position: curr_loc):
+    attendee_details=decode_jwt_token(position.tok)
+    ct=datetime.now()
+    control.execute("insert into AttendeesLocations (UniqueID, Latitude, Longitude, LocationTimestamp) values (%s, %s, %s, %s);", (attendee_details["id"],position.latitude,position.longitude,ct))
+    mydb.commit()
