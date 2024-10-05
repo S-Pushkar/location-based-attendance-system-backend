@@ -27,7 +27,7 @@ create table Attendees(
 	Fname varchar(15),
 	Lname varchar(15),
 	Passwd char(64), /*hashed*/
-	Address varchar(100)/*expand later to AddressLine1, AddressLine2, State, City, Street, HouseNo and Zip if needed*/
+	Address varchar(100) /*expand later to AddressLine1, AddressLine2, State, City, Street, HouseNo and Zip if needed*/
 	);
 
 create table AttendeesLocations(

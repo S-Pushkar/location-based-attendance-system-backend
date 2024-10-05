@@ -2,11 +2,10 @@ import mysql.connector
 import datetime
 import time
 
-pswd=input("Enter MySQL Password ")
 mydb=mysql.connector.connect(
 	host="localhost",
 	user="root",
-	password=pswd,
+	password='12345',
 	database="Attend_DB"
 	)
 

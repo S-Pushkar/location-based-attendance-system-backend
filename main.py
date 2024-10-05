@@ -11,6 +11,8 @@ app = FastAPI()
 
 load_dotenv('.env.local')
 
+salt = bcrypt.gensalt()
+
 SQL_HOST = os.getenv("SQL_HOST")
 SQL_USER = os.getenv("SQL_USER")
 SQL_PASSWORD = os.getenv("SQL_PASSWORD")
@@ -31,8 +33,11 @@ control = mydb.cursor()
 def hello():
     return {"Hello": "World"}
 
+@app.get("/robots.txt")
+def robots_begone():
+    return {"User-agent":"*","Disallow":"/"}
+
 def hash_password(password: str):
-    salt = bcrypt.gensalt()
     hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
     return hashed_password.decode('utf-8')
 
@@ -103,3 +108,25 @@ def register_attendee(attendee: Attendee):
 
     access_token = create_jwt_token({"email": email, "role": "attendee", "fname": fname, "lname": lname})
     return {"access_token": access_token}
+    
+class login(BaseModel):
+    email: EmailStr = Field(..., description="Email of the admin or atttendee")
+    password: str = Field(..., description="Unhashed Password of the admin or attendee")
+    
+@app.post("/")
+def login(details: login):
+    email=details.email.lower()
+    password=hash_password(details.password)
+    control.execute("select AdminID, FirstName, LastName from Admins where Email=%s and Passwd=%s;", (email,password))
+    match=control.fetchone()
+    if match:
+        access_token=create_jwt_token({"email":email, "role":"admin","fname":match[1],"lname":match[2]})
+        return {"access_token":access_token}
+    else:
+        control.execute("select UniqueID, Fname, Lname from Attendees where Email=%s and Passwd=%s;", (email,password))
+        match=control.fetchone()
+        if match:
+            access_token=create_jwt_token({"email":email, "role":"attendee","fname":match[1],"lname":match[2]})
+            return {"access_token":access_token}
+        else:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Please first sign up")
