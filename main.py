@@ -245,3 +245,27 @@ def store_current_location(position: curr_loc):
     ct=datetime.now()
     control.execute("insert into AttendeesLocations (UniqueID, Latitude, Longitude, LocationTimestamp) values (%s, %s, %s, %s);", (attendee_details["id"],position.latitude,position.longitude,ct))
     mydb.commit()
+        
+class identify(BaseModel):
+    tok:  str = Field(..., description="JWT token from the client") 
+
+@app.post("/active-sessions")
+def return_active_sessions(details: identify):
+    identity=decode_jwt_token(details.tok)
+    if identity["role"]=="admin" or identity["role"]=="attendee":
+        rn=datetime.now()
+        control.execute("select * from sessions where EndTime > %s",(rn,))
+        ret=[]
+        for x in control:
+            ret.append(x)
+            
+        if not ret:
+            return{"sessions":"None Active"}
+        return {"sessions":ret}
+    else:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not the authorized")
+
+class admin_check(BaseModel):
+    tok:  str = Field(..., description="JWT token from the client")
+    id: int = Filed(..., description="UniqueID of the student")
+
