@@ -1,5 +1,5 @@
 from fastapi import FastAPI, status, HTTPException
-from pydantic import BaseModel, EmailStr, Field, confloat, constr, validator
+from pydantic import BaseModel, EmailStr, Field, validator
 from dotenv import load_dotenv
 import mysql.connector
 import bcrypt
