@@ -87,12 +87,10 @@ def register_admin(admin: Admin):
     hashed_passwd = hash_password(password)
     
     control.execute("insert into Admins (Email, FirstName, LastName, Passwd, Salt) values (%s, %s, %s, %s, %s);", (email, fname, lname, hashed_passwd[0], hashed_passwd[1]))
+    last_row_id = control.lastrowid
     mydb.commit()
-    
-    control.execute("select AdminID from Admins where Email = %s;", (email,))
-    existing_admins = control.fetchone()
 
-    access_token = create_jwt_token({"id":existing_admins[0],"email": email, "role": "admin", "fname": fname, "lname": lname})
+    access_token = create_jwt_token({"id":last_row_id,"email": email, "role": "admin", "fname": fname, "lname": lname})
     return {"access_token": access_token}
 
 class Attendee(BaseModel):
@@ -118,12 +116,10 @@ def register_attendee(attendee: Attendee):
     hashed_passwd = hash_password(password)
 
     control.execute("insert into Attendees (Email, FName, LName, Passwd, Salt, Address) values (%s, %s, %s, %s, %s, %s);", (email, fname, lname, hashed_passwd[0], hashed_passwd[1], address))
+    last_row_id = control.lastrowid
     mydb.commit()
     
-    control.execute("select UniqueID from Attendees where Email = %s;", (email,))
-    existing_attendees = control.fetchone()
-
-    access_token = create_jwt_token({"id":existing_attendees[0],"email": email, "role": "attendee", "fname": fname, "lname": lname})
+    access_token = create_jwt_token({"id":last_row_id,"email": email, "role": "attendee", "fname": fname, "lname": lname})
     return {"access_token": access_token}
     
 class login(BaseModel):
@@ -153,9 +149,9 @@ def login(details: login):
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Please first sign up")
 
 class session_locs(BaseModel):
-    address: constr(min_length=0, max_length=100) = Field(..., description="An address of a session")
-    longitude: confloat(ge=-180, le=180) = Field(..., description="Longitude of a session location")
-    latitude: confloat(ge=-90, le=90) = Field(..., description="Latitude of a session location")
+    address: str = Field(..., description="Address of a session location", min_length=0, max_length=100)
+    longitude: float = Field(..., description="Longitude of a session location", ge=-180, le=180)
+    latitude: float = Field(..., description="Latitude of a session location", ge=-90, le=90)
     
 class create_session_info(BaseModel):
     tok: str = Field(..., description="JWT token from the client") 
@@ -183,6 +179,11 @@ def create_sesion(details: create_session_info):
     
     if admin_details["role"]!="admin":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not an admin")
+    
+    existing_admin = control.execute("select 1 from Admins where AdminID=%s;", (admin_details["id"],))
+    existing_admin = control.fetchone()
+    if not existing_admin:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin does not exist")
     
     if start_time>=end_time:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ensure the session start and end times are corect")
@@ -229,6 +230,16 @@ def join_session(details: join_sess):
     if attendee_details["role"]=="admin":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not an attendee")
     
+    control.execute("select 1 from Attendees where UniqueID=%s;", (attendee_details["id"],))
+    existing_attendee = control.fetchone()
+    if not existing_attendee:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attendee does not exist")
+    
+    control.execute("select 1 from Sessions where SessionID=%s;", (session_id,))
+    existing_session = control.fetchone()
+    if not existing_session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session does not exist")
+    
     control.execute("insert into Attended_By (UniqueID, SessionID) values (%s, %s);", (attendee_details["id"], session_id))
     mydb.commit()
     
@@ -236,12 +247,18 @@ def join_session(details: join_sess):
     
 class curr_loc(BaseModel):
     tok: str = Field(..., description="JWT token from the client") 
-    longitude: confloat(ge=-180, le=180) = Field(..., description="Longitude of a current attnedee location")
-    latitude: confloat(ge=-90, le=90) = Field(..., description="Latitude of a current attendee location")
+    longitude: float = Field(..., description="Longitude of the current location", ge=-180, le=180)
+    latitude: float = Field(..., description="Latitude of the current location", ge=-90, le=90)
 
 @app.post("/current-location")
 def store_current_location(position: curr_loc):
     attendee_details=decode_jwt_token(position.tok)
+
+    existing_attendee = control.execute("select 1 from Attendees where UniqueID=%s;", (attendee_details["id"],))
+    existing_attendee = control.fetchone()
+    if not existing_attendee:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attendee does not exist")
+    
     ct=datetime.now()
     control.execute("insert into AttendeesLocations (UniqueID, Latitude, Longitude, LocationTimestamp) values (%s, %s, %s, %s);", (attendee_details["id"],position.latitude,position.longitude,ct))
     mydb.commit()
@@ -267,5 +284,5 @@ def return_active_sessions(details: identify):
 
 class admin_check(BaseModel):
     tok:  str = Field(..., description="JWT token from the client")
-    id: int = Filed(..., description="UniqueID of the student")
+    id: int = Field(..., description="UniqueID of the student")
 
