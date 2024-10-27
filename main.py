@@ -295,15 +295,17 @@ def return_student_attendance(details: admin_check):
     adid=admin_details["id"]
     time_now=datetime.now()
     
-    control.execute("select sessions.starttime as starttime, sessions.endtime as endtime, sessionlocations.sessionid as sid, sessionlocations.longitude as longi, sessionlocations.latitude as lati from sessionlocations, sessions, attended_by where sessions.adminid = %s and sessions.sessionid=sessionlocations.sessionid and sessions.endtime<=%s and attended_by.uniqueid=%s and attended_by.sessionid=sessions.sessionid order by sessionlocations.sessionid",(adid,time_now))
+    control.execute("select sessions.starttime as starttime, sessions.endtime as endtime, sessionlocations.sessionid as sid, sessionlocations.longitude as longi, sessionlocations.latitude as lati from sessionlocations, sessions, attended_by where sessions.adminid = %s and sessions.sessionid=sessionlocations.sessionid and sessions.endtime<=%s and attended_by.uniqueid=%s and attended_by.sessionid=sessions.sessionid order by sessionlocations.sessionid",(adid,time_now,student_id))
     
     t1=control.fetchall()
+    print(t1)
     
     #control.execute("create table newtb2 as select attendeeslocations.locationtimestamp as timestamp, attendeeslocations.longitude as longitude, attendeeslocations.latitude as latitude, attendedby.sessionid as sessionid from attended_by, attendeeslocations, sessions where attended_by.sessionid = session.sessionid and sessions.adminid=%s and attended_by.uniqueid=%s and attendeeslocations.uniqueid=attended_by.uniqueid and attendeeslocations.locationtimestamp<=sessions.endtime and attendeeslocations.locationtimestamo>=sessions.starttime and sessions.endtime<=%s order by attendedby.sessionid",(adid,student_id,time_now))
     
     control.execute("select * from attendeeslocations where uniqueid=%s",(student_id,))
     
     t2=control.fetchall()
+    print(t2)
     
     satt={}
     temp={}
@@ -312,15 +314,16 @@ def return_student_attendance(details: admin_check):
         for j in t1:
             if i[0]>=j[0] and i[0]<=j[1]:
                 if abs(i[1]-j[3])<0.0001 and abs(i[2]-j[4])<0.0001: #About 10 metres
-                    temp[i[2]]=1
+                    temp[j[2]]=1
                 else:
                     if i[2] not in temp:
-                        temp[i[2]]=0
+                        temp[j[2]]=0
         for k in temp:
             if k not in satt:
                 satt[k]=[0,0]
             satt[k][0]+=temp[k]
             satt[k][1]+=1
+    
     for k in satt:
         satt[k]=(satt[k][0]/satt[k][1])>=0.8
     
