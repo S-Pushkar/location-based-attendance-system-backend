@@ -328,3 +328,43 @@ def return_student_attendance(details: admin_check):
         satt[k]=(satt[k][0]/satt[k][1])>=0.8
     
     return satt
+    
+@app.post("/check-attendance")
+def check_your_attendance(details: identify):
+    identity=decode_jwt_token(details.tok)
+    student_id=identity["id"]
+    if identity["role"]!="attendee":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not the authorized")
+    time_now=datetime.now()
+    
+    control.execute("select sessions.starttime as starttime, sessions.endtime as endtime, sessionlocations.sessionid as sid, sessionlocations.longitude as longi, sessionlocations.latitude as lati from sessionlocations, sessions, attended_by where sessions.sessionid=sessionlocations.sessionid and sessions.endtime<=%s and attended_by.uniqueid=%s and attended_by.sessionid=sessions.sessionid order by sessionlocations.sessionid",(time_now,student_id))
+    
+    t1=control.fetchall()
+    print(t1)
+    
+    control.execute("select * from attendeeslocations where uniqueid=%s",(student_id,))
+    
+    t2=control.fetchall()
+    print(t2)
+    
+    satt={}
+    temp={}
+    for i in t2:
+        temp={}
+        for j in t1:
+            if i[0]>=j[0] and i[0]<=j[1]:
+                if abs(i[1]-j[3])<0.0001 and abs(i[2]-j[4])<0.0001: #About 10 metres
+                    temp[j[2]]=1
+                else:
+                    if i[2] not in temp:
+                        temp[j[2]]=0
+        for k in temp:
+            if k not in satt:
+                satt[k]=[0,0]
+            satt[k][0]+=temp[k]
+            satt[k][1]+=1
+    
+    for k in satt:
+        satt[k]=(satt[k][0]/satt[k][1])>=0.8
+    
+    return satt
