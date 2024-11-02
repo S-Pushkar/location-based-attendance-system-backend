@@ -126,12 +126,33 @@ class login(BaseModel):
     email: EmailStr = Field(..., description="Email of the admin or atttendee")
     password: str = Field(..., description="Unhashed Password of the admin or attendee")
     
-@app.post("/auth/login")
-def login(details: login):
-    #Assuming admins and attendees are mutually exclusive
-    email=details.email.lower()
-    password=details.password
+# @app.post("/auth/login")
+# def login(details: login):
+#     #Assuming admins and attendees are mutually exclusive
+#     email=details.email.lower()
+#     password=details.password
     
+#     control.execute("select AdminID, FirstName, LastName, Passwd, Salt from Admins where Email=%s;", (email,))
+    
+#     for match in control:
+#         if rehash(password,match[4])==match[3]:
+#             access_token=create_jwt_token({"id":match[0],"email":email, "role":"admin","fname":match[1],"lname":match[2]})
+#             return {"access_token":access_token}
+
+#     control.execute("select UniqueID, Fname, Lname, Passwd, Salt from Attendees where Email=%s and Passwd=%s;", (email,password))
+    
+#     for match in control:
+#         if rehash(password,match[4])==match[3]:
+#             access_token=create_jwt_token({"id":match[0],"email":email, "role":"attendee","fname":match[1],"lname":match[2]})
+#             return {"access_token":access_token}
+
+#     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Please first sign up")
+
+@app.post("/auth/login-admin")
+def login_admin(details: login):
+    email = details.email.lower()
+    password = details.password
+
     control.execute("select AdminID, FirstName, LastName, Passwd, Salt from Admins where Email=%s;", (email,))
     
     for match in control:
@@ -139,7 +160,14 @@ def login(details: login):
             access_token=create_jwt_token({"id":match[0],"email":email, "role":"admin","fname":match[1],"lname":match[2]})
             return {"access_token":access_token}
 
-    control.execute("select UniqueID, Fname, Lname, Passwd, Salt from Attendees where Email=%s and Passwd=%s;", (email,password))
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Please first sign up")
+
+@app.post("/auth/login-attendee")
+def login_attendee(details: login):
+    email = details.email.lower()
+    password = details.password
+
+    control.execute("select UniqueID, FName, LName, Passwd, Salt from Attendees where Email=%s;", (email,))
     
     for match in control:
         if rehash(password,match[4])==match[3]:
