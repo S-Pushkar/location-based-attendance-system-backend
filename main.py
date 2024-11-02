@@ -327,7 +327,7 @@ def return_active_sessions(details: identify):
             ret.append(x)
             
         if not ret:
-            return{"sessions":"None Active"}
+            return{"sessions":[]}
         return {"sessions":ret}
     else:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not the authorized")
@@ -428,3 +428,16 @@ def get_sessions_created(details: identify):
     control.execute("select sessionid, starttime, endtime from sessions where adminid=%s order by starttime desc;", (adid,))
     result = control.fetchall()
     return result
+    
+    
+@app.post("/my-sessions")
+def get_joined_sessions(details: identify):
+    identity = decode_jwt_token(details.tok)
+    if identity["role"] != "attendee":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not the authorized")
+    adid = identity["id"]
+    control.execute("select sessions.sessionid, sessions.starttime, sessions.endtime, sessions.adminid from attended_by, sessions where attended_by.uniqueid=%s",(adid,))
+    ret=[]
+    for x in control:
+        ret.append(x)
+    return {"sessions":ret}
