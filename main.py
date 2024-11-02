@@ -40,6 +40,17 @@ mydb = mysql.connector.connect(
 
 control = mydb.cursor()
 
+
+
+mydb2 = mysql.connector.connect(
+    host=SQL_HOST,
+    user=SQL_USER,
+    password=SQL_PASSWORD,
+    database=SQL_DB
+)
+
+control2 = mydb2.cursor()
+
 @app.get("/hello")
 def hello():
     return {"Hello": "World"}
@@ -291,14 +302,16 @@ class curr_loc(BaseModel):
 def store_current_location(position: curr_loc):
     attendee_details=decode_jwt_token(position.tok)
 
-    existing_attendee = control.execute("select 1 from Attendees where UniqueID=%s;", (attendee_details["id"],))
-    existing_attendee = control.fetchone()
+    existing_attendee = control2.execute("select 1 from Attendees where UniqueID=%s;", (attendee_details["id"],))
+    existing_attendee = control2.fetchone()
     if not existing_attendee:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attendee does not exist")
     
     ct=datetime.now()
-    control.execute("insert into AttendeesLocations (UniqueID, Latitude, Longitude, LocationTimestamp) values (%s, %s, %s, %s);", (attendee_details["id"],position.latitude,position.longitude,ct))
-    mydb.commit()
+    control2.execute("insert into AttendeesLocations (UniqueID, Latitude, Longitude, LocationTimestamp) values (%s, %s, %s, %s);", (attendee_details["id"],position.latitude,position.longitude,ct))
+    mydb2.commit()
+    
+    return {"Status":"Location recieved"}
         
 class identify(BaseModel):
     tok:  str = Field(..., description="JWT token from the client") 
@@ -335,14 +348,14 @@ def return_student_attendance(details: admin_check):
     control.execute("select sessions.starttime as starttime, sessions.endtime as endtime, sessionlocations.sessionid as sid, sessionlocations.longitude as longi, sessionlocations.latitude as lati from sessionlocations, sessions, attended_by where sessions.adminid = %s and sessions.sessionid=sessionlocations.sessionid and sessions.endtime<=%s and attended_by.uniqueid=%s and attended_by.sessionid=sessions.sessionid order by sessionlocations.sessionid",(adid,time_now,student_id))
     
     t1=control.fetchall()
-    print(t1)
+    #print(t1)
     
     #control.execute("create table newtb2 as select attendeeslocations.locationtimestamp as timestamp, attendeeslocations.longitude as longitude, attendeeslocations.latitude as latitude, attendedby.sessionid as sessionid from attended_by, attendeeslocations, sessions where attended_by.sessionid = session.sessionid and sessions.adminid=%s and attended_by.uniqueid=%s and attendeeslocations.uniqueid=attended_by.uniqueid and attendeeslocations.locationtimestamp<=sessions.endtime and attendeeslocations.locationtimestamo>=sessions.starttime and sessions.endtime<=%s order by attendedby.sessionid",(adid,student_id,time_now))
     
     control.execute("select * from attendeeslocations where uniqueid=%s",(student_id,))
     
     t2=control.fetchall()
-    print(t2)
+    #print(t2)
     
     satt={}
     temp={}
@@ -377,12 +390,12 @@ def check_your_attendance(details: identify):
     control.execute("select sessions.starttime as starttime, sessions.endtime as endtime, sessionlocations.sessionid as sid, sessionlocations.longitude as longi, sessionlocations.latitude as lati from sessionlocations, sessions, attended_by where sessions.sessionid=sessionlocations.sessionid and sessions.endtime<=%s and attended_by.uniqueid=%s and attended_by.sessionid=sessions.sessionid order by sessionlocations.sessionid",(time_now,student_id))
     
     t1=control.fetchall()
-    print(t1)
+    #print(t1)
     
     control.execute("select * from attendeeslocations where uniqueid=%s",(student_id,))
     
     t2=control.fetchall()
-    print(t2)
+    #print(t2)
     
     satt={}
     temp={}
