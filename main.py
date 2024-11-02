@@ -405,3 +405,13 @@ def check_your_attendance(details: identify):
         satt[k]=(satt[k][0]/satt[k][1])>=0.8
     
     return satt
+
+@app.post("/get-sessions-created")
+def get_sessions_created(details: identify):
+    identity = decode_jwt_token(details.tok)
+    if identity["role"] != "admin":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not the authorized")
+    adid = identity["id"]
+    control.execute("select sessionid, starttime, endtime from sessions where adminid=%s order by starttime desc;", (adid,))
+    result = control.fetchall()
+    return result
