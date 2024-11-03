@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, validator
 from dotenv import load_dotenv
 import mysql.connector
+from contextlib import contextmanager
 import bcrypt
 import os
 from jose import jwt
@@ -31,25 +32,34 @@ SQL_DB = os.getenv("SQL_DB")
 JWT_SECRET = os.getenv("JWT_SECRET")
 ALGORITHM = 'HS256'
 
-mydb = mysql.connector.connect(
-    host=SQL_HOST,
-    user=SQL_USER,
-    password=SQL_PASSWORD,
-    database=SQL_DB
-)
+dbconfig = {
+    "host": SQL_HOST,
+    "user": SQL_USER,
+    "password": SQL_PASSWORD,
+    "database": SQL_DB,
+    "pool_name": "mypool",
+    "pool_size": 5,
+    "pool_reset_session": True
+}
 
-control = mydb.cursor()
 
+connection_pool = mysql.connector.pooling.MySQLConnectionPool(**dbconfig)
 
+@contextmanager
+def get_connection():
+    connection = connection_pool.get_connection()
+    try:
+        yield connection
+    finally:
+        connection.close()
 
-mydb2 = mysql.connector.connect(
-    host=SQL_HOST,
-    user=SQL_USER,
-    password=SQL_PASSWORD,
-    database=SQL_DB
-)
-
-control2 = mydb2.cursor()
+@contextmanager
+def get_cursor(connection):
+    cursor = connection.cursor()
+    try:
+        yield cursor
+    finally:
+        cursor.close()
 
 @app.get("/hello")
 def hello():
@@ -98,17 +108,19 @@ def register_admin(admin: Admin):
     lname = admin.lname
     password = admin.password
 
-    control.execute("select 1 from Admins where Email = %s;", (email,))
-    existing_admins = control.fetchone()
+    with get_connection() as connection:
+        with get_cursor(connection) as control:
+            control.execute("select 1 from Admins where Email = %s;", (email,))
+            existing_admins = control.fetchone()
 
-    if existing_admins:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Admin already exists")
-    
-    hashed_passwd = hash_password(password)
-    
-    control.execute("insert into Admins (Email, FirstName, LastName, Passwd, Salt) values (%s, %s, %s, %s, %s);", (email, fname, lname, hashed_passwd[0], hashed_passwd[1]))
-    last_row_id = control.lastrowid
-    mydb.commit()
+            if existing_admins:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Admin already exists")
+            
+            hashed_passwd = hash_password(password)
+            
+            control.execute("insert into Admins (Email, FirstName, LastName, Passwd, Salt) values (%s, %s, %s, %s, %s);", (email, fname, lname, hashed_passwd[0], hashed_passwd[1]))
+            last_row_id = control.lastrowid
+            connection.commit()
 
     access_token = create_jwt_token({"id":last_row_id,"email": email, "role": "admin", "fname": fname, "lname": lname})
     return {"access_token": access_token}
@@ -128,16 +140,18 @@ def register_attendee(attendee: Attendee):
     password = attendee.password
     address = attendee.address
 
-    control.execute("select 1 from Attendees where Email = %s;", (email,))
-    existing_attendees = control.fetchone()
-    if existing_attendees:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Attendee already exists")
-    
-    hashed_passwd = hash_password(password)
+    with get_connection() as connection:
+        with get_cursor(connection) as control:
+            control.execute("select 1 from Attendees where Email = %s;", (email,))
+            existing_attendees = control.fetchone()
+            if existing_attendees:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Attendee already exists")
+            
+            hashed_passwd = hash_password(password)
 
-    control.execute("insert into Attendees (Email, FName, LName, Passwd, Salt, Address) values (%s, %s, %s, %s, %s, %s);", (email, fname, lname, hashed_passwd[0], hashed_passwd[1], address))
-    last_row_id = control.lastrowid
-    mydb.commit()
+            control.execute("insert into Attendees (Email, FName, LName, Passwd, Salt, Address) values (%s, %s, %s, %s, %s, %s);", (email, fname, lname, hashed_passwd[0], hashed_passwd[1], address))
+            last_row_id = control.lastrowid
+            connection.commit()
     
     access_token = create_jwt_token({"id":last_row_id,"email": email, "role": "attendee", "fname": fname, "lname": lname})
     return {"access_token": access_token}
@@ -146,39 +160,20 @@ class login(BaseModel):
     email: EmailStr = Field(..., description="Email of the admin or atttendee")
     password: str = Field(..., description="Unhashed Password of the admin or attendee")
     
-# @app.post("/auth/login")
-# def login(details: login):
-#     #Assuming admins and attendees are mutually exclusive
-#     email=details.email.lower()
-#     password=details.password
-    
-#     control.execute("select AdminID, FirstName, LastName, Passwd, Salt from Admins where Email=%s;", (email,))
-    
-#     for match in control:
-#         if rehash(password,match[4])==match[3]:
-#             access_token=create_jwt_token({"id":match[0],"email":email, "role":"admin","fname":match[1],"lname":match[2]})
-#             return {"access_token":access_token}
-
-#     control.execute("select UniqueID, Fname, Lname, Passwd, Salt from Attendees where Email=%s and Passwd=%s;", (email,password))
-    
-#     for match in control:
-#         if rehash(password,match[4])==match[3]:
-#             access_token=create_jwt_token({"id":match[0],"email":email, "role":"attendee","fname":match[1],"lname":match[2]})
-#             return {"access_token":access_token}
-
-#     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Please first sign up")
 
 @app.post("/auth/login-admin")
 def login_admin(details: login):
     email = details.email.lower()
     password = details.password
 
-    control.execute("select AdminID, FirstName, LastName, Passwd, Salt from Admins where Email=%s;", (email,))
-    
-    for match in control:
-        if rehash(password,match[4])==match[3]:
-            access_token=create_jwt_token({"id":match[0],"email":email, "role":"admin","fname":match[1],"lname":match[2]})
-            return {"access_token":access_token}
+    with get_connection() as connection:
+        with get_cursor(connection) as control:
+            control.execute("select AdminID, FirstName, LastName, Passwd, Salt from Admins where Email=%s;", (email,))
+
+            for match in control:
+                if rehash(password,match[4])==match[3]:
+                    access_token=create_jwt_token({"id":match[0],"email":email, "role":"admin","fname":match[1],"lname":match[2]})
+                    return {"access_token":access_token}
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Please first sign up")
 
@@ -187,12 +182,14 @@ def login_attendee(details: login):
     email = details.email.lower()
     password = details.password
 
-    control.execute("select UniqueID, FName, LName, Passwd, Salt from Attendees where Email=%s;", (email,))
-    
-    for match in control:
-        if rehash(password,match[4])==match[3]:
-            access_token=create_jwt_token({"id":match[0],"email":email, "role":"attendee","fname":match[1],"lname":match[2]})
-            return {"access_token":access_token}
+    with get_connection() as connection:
+        with get_cursor(connection) as control:
+            control.execute("select UniqueID, FName, LName, Passwd, Salt from Attendees where Email=%s;", (email,))
+
+            for match in control:
+                if rehash(password,match[4])==match[3]:
+                    access_token=create_jwt_token({"id":match[0],"email":email, "role":"attendee","fname":match[1],"lname":match[2]})
+                    return {"access_token":access_token}
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Please first sign up")
 
@@ -228,21 +225,24 @@ def create_sesion(details: create_session_info):
     if admin_details["role"]!="admin":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not an admin")
     
-    existing_admin = control.execute("select 1 from Admins where AdminID=%s;", (admin_details["id"],))
-    existing_admin = control.fetchone()
-    if not existing_admin:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin does not exist")
-    
-    if start_time>=end_time:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ensure the session start and end times are corect")
-    
-    control.execute("insert into Sessions (StartTime, EndTime, AdminID) values (%s, %s, %s);", (start_time, end_time, admin_details["id"]))
-    session_id=control.lastrowid
-    mydb.commit()
-    
-    for x in locations:
-        control.execute("insert into SessionLocations (Address, Longitude, Latitude, SessionID) values (%s, %s, %s, %s);", (x.address, x.longitude, x.latitude, session_id))
-        mydb.commit()
+    with get_connection() as connection:
+        with get_cursor(connection) as control:
+            existing_admin = control.execute("select 1 from Admins where AdminID=%s;", (admin_details["id"],))
+            existing_admin = control.fetchone()
+            if not existing_admin:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin does not exist")
+            
+            if start_time>=end_time:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ensure the session start and end times are corect")
+            
+            control.execute("insert into Sessions (StartTime, EndTime, AdminID) values (%s, %s, %s);", (start_time, end_time, admin_details["id"]))
+
+            session_id=control.lastrowid
+            connection.commit()
+            
+            for x in locations:
+                control.execute("insert into SessionLocations (Address, Longitude, Latitude, SessionID) values (%s, %s, %s, %s);", (x.address, x.longitude, x.latitude, session_id))
+                connection.commit()
 
     return {"result": "Session successfully created"}
 
@@ -254,15 +254,17 @@ def add_session_locations(details: add_locs):
     
     if admin_details["role"]!="admin":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not an admin")
-        
-    control.execute("select AdminID from Sessions where SessionID=%s;", (session_id,))
-    match = control.fetchone()
-    if match[0]!=admin_details["id"]:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not the session manager")
     
-    for x in locations:
-        control.execute("insert into SessionLocations (Address, Longitude, Latitude, SessionID) values (%s, %s, %s, %s);", (x.address, x.longitude, x.latitude, session_id))
-        mydb.commit()
+    with get_connection() as connection:
+        with get_cursor(connection) as control:
+            control.execute("select AdminID from Sessions where SessionID=%s;", (session_id,))
+            match = control.fetchone()
+            if match[0]!=admin_details["id"]:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not the session manager")
+            
+            for x in locations:
+                control.execute("insert into SessionLocations (Address, Longitude, Latitude, SessionID) values (%s, %s, %s, %s);", (x.address, x.longitude, x.latitude, session_id))
+                connection.commit()
     
     return {"result":"Session locations updated"}
     
@@ -278,18 +280,20 @@ def join_session(details: join_sess):
     if attendee_details["role"]=="admin":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not an attendee")
     
-    control.execute("select 1 from Attendees where UniqueID=%s;", (attendee_details["id"],))
-    existing_attendee = control.fetchone()
-    if not existing_attendee:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attendee does not exist")
-    
-    control.execute("select 1 from Sessions where SessionID=%s;", (session_id,))
-    existing_session = control.fetchone()
-    if not existing_session:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session does not exist")
-    
-    control.execute("insert into Attended_By (UniqueID, SessionID) values (%s, %s);", (attendee_details["id"], session_id))
-    mydb.commit()
+    with get_connection() as connection:
+        with get_cursor(connection) as control:
+            control.execute("select 1 from Attendees where UniqueID=%s;", (attendee_details["id"],))
+            existing_attendee = control.fetchone()
+            if not existing_attendee:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attendee does not exist")
+            
+            control.execute("select 1 from Sessions where SessionID=%s;", (session_id,))
+            existing_session = control.fetchone()
+            if not existing_session:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session does not exist")
+            
+            control.execute("insert into Attended_By (UniqueID, SessionID) values (%s, %s);", (attendee_details["id"], session_id))
+            connection.commit()
     
     return {"result":"Session joined successfully"}
     
@@ -302,14 +306,18 @@ class curr_loc(BaseModel):
 def store_current_location(position: curr_loc):
     attendee_details=decode_jwt_token(position.tok)
 
-    existing_attendee = control2.execute("select 1 from Attendees where UniqueID=%s;", (attendee_details["id"],))
-    existing_attendee = control2.fetchone()
-    if not existing_attendee:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attendee does not exist")
+    if attendee_details["role"]=="admin":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not an attendee")
     
-    ct=datetime.now()
-    control2.execute("insert into AttendeesLocations (UniqueID, Latitude, Longitude, LocationTimestamp) values (%s, %s, %s, %s);", (attendee_details["id"],position.latitude,position.longitude,ct))
-    mydb2.commit()
+    with get_connection() as connection:
+        with get_cursor(connection) as control:
+            control.execute("select 1 from Attendees where UniqueID=%s;", (attendee_details["id"],))
+            existing_attendee = control.fetchone()
+            if not existing_attendee:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attendee does not exist")
+            
+            control.execute("insert into AttendeesLocations (UniqueID, Latitude, Longitude, LocationTimestamp) values (%s, %s, %s, %s);", (attendee_details["id"], position.latitude, position.longitude, datetime.now()))
+            connection.commit()
     
     return {"Status":"Location recieved"}
         
@@ -321,11 +329,12 @@ def return_active_sessions(details: identify):
     identity=decode_jwt_token(details.tok)
     if identity["role"]=="admin" or identity["role"]=="attendee":
         rn=datetime.now()
-        control.execute("select * from sessions where EndTime > %s",(rn,))
-        ret=[]
-        for x in control:
-            ret.append(x)
-            
+        ret = []
+        with get_connection() as connection:
+            with get_cursor(connection) as control:
+                control.execute("select * from sessions where EndTime > %s",(rn,))
+                for x in control:
+                    ret.append(x)
         if not ret:
             return{"sessions":[]}
         return {"sessions":ret}
@@ -344,40 +353,41 @@ def return_student_attendance(details: admin_check):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not the authorized")
     adid=admin_details["id"]
     time_now=datetime.now()
-    
-    control.execute("select sessions.starttime as starttime, sessions.endtime as endtime, sessionlocations.sessionid as sid, sessionlocations.longitude as longi, sessionlocations.latitude as lati from sessionlocations, sessions, attended_by where sessions.adminid = %s and sessions.sessionid=sessionlocations.sessionid and sessions.endtime<=%s and attended_by.uniqueid=%s and attended_by.sessionid=sessions.sessionid order by sessionlocations.sessionid",(adid,time_now,student_id))
-    
-    t1=control.fetchall()
-    #print(t1)
-    
-    #control.execute("create table newtb2 as select attendeeslocations.locationtimestamp as timestamp, attendeeslocations.longitude as longitude, attendeeslocations.latitude as latitude, attendedby.sessionid as sessionid from attended_by, attendeeslocations, sessions where attended_by.sessionid = session.sessionid and sessions.adminid=%s and attended_by.uniqueid=%s and attendeeslocations.uniqueid=attended_by.uniqueid and attendeeslocations.locationtimestamp<=sessions.endtime and attendeeslocations.locationtimestamo>=sessions.starttime and sessions.endtime<=%s order by attendedby.sessionid",(adid,student_id,time_now))
-    
-    control.execute("select * from attendeeslocations where uniqueid=%s",(student_id,))
-    
-    t2=control.fetchall()
-    #print(t2)
-    
-    satt={}
-    temp={}
-    for i in t2:
-        temp={}
-        for j in t1:
-            if i[0]>=j[0] and i[0]<=j[1]:
-                if abs(i[1]-j[3])<0.0001 and abs(i[2]-j[4])<0.0001: #About 10 metres
-                    temp[j[2]]=1
-                else:
-                    if i[2] not in temp:
-                        temp[j[2]]=0
-        for k in temp:
-            if k not in satt:
-                satt[k]=[0,0]
-            satt[k][0]+=temp[k]
-            satt[k][1]+=1
-    
-    for k in satt:
-        satt[k]=(satt[k][0]/satt[k][1])>=0.8
-    
-    return satt
+
+    with get_connection() as connection:
+        with get_cursor(connection) as control:
+            control.execute("select sessions.starttime as starttime, sessions.endtime as endtime, sessionlocations.sessionid as sid, sessionlocations.longitude as longi, sessionlocations.latitude as lati from sessionlocations, sessions, attended_by where sessions.adminid = %s and sessions.sessionid=sessionlocations.sessionid and sessions.endtime<=%s and attended_by.uniqueid=%s and attended_by.sessionid=sessions.sessionid order by sessionlocations.sessionid",(adid,time_now,student_id))
+
+            t1=control.fetchall()
+
+            control.execute("select * from attendeeslocations where uniqueid=%s",(student_id,))
+
+            t2=control.fetchall()
+
+            satt = {}
+            temp = {}
+            for i in t2:
+                temp = {}
+                for j in t1:
+                    if i[0]>=j[0] and i[0]<=j[1]:
+                        if abs(i[1]-j[3])<0.0001 and abs(i[2]-j[4])<0.0001: #About 10 metres
+                            temp[j[2]]=1
+                        else:
+                            if i[2] not in temp:
+                                temp[j[2]]=0
+
+                for k in temp:
+                    if k not in satt:
+                        satt[k]=[0,0]
+                    satt[k][0]+=temp[k]
+                    satt[k][1]+=1
+
+            for k in satt:
+                satt[k]=(satt[k][0]/satt[k][1])>=0.8
+
+            return satt
+        
+    return {"result":"Error in fetching attendance"}
     
 @app.post("/check-attendance")
 def check_your_attendance(details: identify):
@@ -386,38 +396,40 @@ def check_your_attendance(details: identify):
     if identity["role"]!="attendee":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not the authorized")
     time_now=datetime.now()
-    
-    control.execute("select sessions.starttime as starttime, sessions.endtime as endtime, sessionlocations.sessionid as sid, sessionlocations.longitude as longi, sessionlocations.latitude as lati from sessionlocations, sessions, attended_by where sessions.sessionid=sessionlocations.sessionid and sessions.endtime<=%s and attended_by.uniqueid=%s and attended_by.sessionid=sessions.sessionid order by sessionlocations.sessionid",(time_now,student_id))
-    
-    t1=control.fetchall()
-    #print(t1)
-    
-    control.execute("select * from attendeeslocations where uniqueid=%s",(student_id,))
-    
-    t2=control.fetchall()
-    #print(t2)
-    
-    satt={}
-    temp={}
-    for i in t2:
-        temp={}
-        for j in t1:
-            if i[0]>=j[0] and i[0]<=j[1]:
-                if abs(i[1]-j[3])<0.0001 and abs(i[2]-j[4])<0.0001: #About 10 metres
-                    temp[j[2]]=1
-                else:
-                    if i[2] not in temp:
-                        temp[j[2]]=0
-        for k in temp:
-            if k not in satt:
-                satt[k]=[0,0]
-            satt[k][0]+=temp[k]
-            satt[k][1]+=1
-    
-    for k in satt:
-        satt[k]=(satt[k][0]/satt[k][1])>=0.8
-    
-    return satt
+
+    with get_connection() as connection:
+        with get_cursor(connection) as control:
+            control.execute("select sessions.starttime as starttime, sessions.endtime as endtime, sessionlocations.sessionid as sid, sessionlocations.longitude as longi, sessionlocations.latitude as lati from sessionlocations, sessions, attended_by where sessions.sessionid=sessionlocations.sessionid and sessions.endtime<=%s and attended_by.uniqueid=%s and attended_by.sessionid=sessions.sessionid order by sessionlocations.sessionid",(time_now,student_id))
+
+            t1=control.fetchall()
+
+            control.execute("select * from attendeeslocations where uniqueid=%s",(student_id,))
+
+            t2=control.fetchall()
+
+            satt = {}
+            temp = {}
+            for i in t2:
+                temp = {}
+                for j in t1:
+                    if i[0]>=j[0] and i[0]<=j[1]:
+                        if abs(i[1]-j[3])<0.0001 and abs(i[2]-j[4])<0.0001: #About 10 metres
+                            temp[j[2]]=1
+                        else:
+                            if i[2] not in temp:
+                                temp[j[2]]=0
+
+                for k in temp:
+                    if k not in satt:
+                        satt[k]=[0,0]
+                    satt[k][0]+=temp[k]
+                    satt[k][1]+=1
+
+            for k in satt:
+                satt[k]=(satt[k][0]/satt[k][1])>=0.8
+
+            return satt
+    return {"result":"Error in fetching attendance"}
 
 @app.post("/get-sessions-created")
 def get_sessions_created(details: identify):
@@ -425,9 +437,14 @@ def get_sessions_created(details: identify):
     if identity["role"] != "admin":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not the authorized")
     adid = identity["id"]
-    control.execute("select sessionid, starttime, endtime from sessions where adminid=%s order by starttime desc;", (adid,))
-    result = control.fetchall()
-    return result
+    try:
+        with get_connection() as connection:
+            with get_cursor(connection) as control:
+                control.execute("select sessionid, starttime, endtime from sessions where adminid=%s order by starttime desc;", (adid,))
+                result = control.fetchall()
+                return result
+    except:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error in fetching sessions created")
     
     
 @app.post("/my-sessions")
@@ -436,8 +453,11 @@ def get_joined_sessions(details: identify):
     if identity["role"] != "attendee":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not the authorized")
     adid = identity["id"]
-    control.execute("select sessions.sessionid, sessions.starttime, sessions.endtime, sessions.adminid from attended_by, sessions where attended_by.uniqueid=%s",(adid,))
-    ret=[]
-    for x in control:
-        ret.append(x)
-    return {"sessions":ret}
+    with get_connection() as connection:
+        with get_cursor(connection) as control:
+            control.execute("select sessions.sessionid, sessions.starttime, sessions.endtime, sessions.adminid from attended_by, sessions where attended_by.uniqueid=%s",(adid,))
+            ret=[]
+            for x in control:
+                ret.append(x)
+            return {"sessions":ret}
+    return {"sessions":[]}
