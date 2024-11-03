@@ -461,3 +461,53 @@ def get_joined_sessions(details: identify):
                 ret.append(x)
             return {"sessions":ret}
     return {"sessions":[]}
+
+class session_details(BaseModel):
+    tok: str = Field(..., description="JWT token from the client")
+    sessionid: int = Field(..., description="ID of the session")
+
+@app.post("/get-session-attendees")
+def get_session_attendees(details: session_details):
+    tok = details.tok
+    sessionid = details.sessionid
+    identity = decode_jwt_token(tok)
+    if identity["role"] != "admin":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not the authorized")
+    
+    starttime = None
+    endtime = None
+    address = None
+    latitude = None
+    longitude = None
+    attendees = []
+    
+    with get_connection() as connection:
+        with get_cursor(connection) as control:
+            control.execute("select StartTime, EndTime, AdminID from sessions where SessionID=%s and AdminID=%s;", (sessionid, identity["id"]))
+            match = control.fetchone()
+
+            if not match:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+            
+            starttime = match[0]
+            endtime = match[1]
+
+            control.execute("select Address, Longitude, Latitude from SessionLocations where SessionID=%s;", (sessionid,))
+
+            data = control.fetchall()
+            address = data[0][0]
+            longitude = data[0][1]
+            latitude = data[0][2]
+
+            control.execute("select a.email, a.fname, a.lname from attendees a, attended_by ab where ab.uniqueid=a.uniqueid and ab.sessionid=%s;", (sessionid,))
+
+            for x in control:
+                attendees.append({"email": x[0], "fname": x[1], "lname": x[2]})
+
+    if starttime == None or endtime == None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    
+    if address == None or latitude == None or longitude == None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session location not found")
+    
+    return {"starttime": starttime, "endtime": endtime, "address": address, "longitude": longitude, "latitude": latitude, "attendees": attendees}

@@ -45,7 +45,8 @@ create table SessionLocations(
 	Longitude float(9,6), /* -180 to 180 */
 	Latitude float(8,6), /* -90 to 90 */
 	SessionID INT,
-	foreign key(SessionID) references Sessions(SessionID)
+	foreign key(SessionID) references Sessions(SessionID),
+	primary key(SessionID, Address, Longitude, Latitude)
 	);
 	
 create table Attended_By(
