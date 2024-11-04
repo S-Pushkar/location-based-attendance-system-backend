@@ -332,9 +332,15 @@ def return_active_sessions(details: identify):
         ret = []
         with get_connection() as connection:
             with get_cursor(connection) as control:
+                r=[]
+                if identity["role"]=="attendee":
+                    control.execute("select sessionid from attended_by where uniqueid=%s",(identity["id"],))
+                    r=control.fetchall()
+                    r=[x[0] for x in r]
                 control.execute("select * from sessions where EndTime > %s",(rn,))
                 for x in control:
-                    ret.append(x)
+                    if x[0] not in r:
+                        ret.append(x)
         if not ret:
             return{"sessions":[]}
         return {"sessions":ret}
@@ -455,7 +461,7 @@ def get_joined_sessions(details: identify):
     adid = identity["id"]
     with get_connection() as connection:
         with get_cursor(connection) as control:
-            control.execute("select sessions.sessionid, sessions.starttime, sessions.endtime, sessions.adminid from attended_by, sessions where attended_by.uniqueid=%s",(adid,))
+            control.execute("select sessions.sessionid, sessions.starttime, sessions.endtime, sessions.adminid from attended_by, sessions where attended_by.uniqueid=%s and sessions.sessionid=attended_by.sessionid",(adid,))
             ret=[]
             for x in control:
                 ret.append(x)
