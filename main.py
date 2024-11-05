@@ -271,11 +271,20 @@ def add_session_locations(details: add_locs):
 class join_sess(BaseModel):
     tok: str = Field(..., description="JWT token from the client")
     sessionid: int = Field(..., description="ID of the session the attendee is joining")
+    latitude: float = Field(..., description="Latitude of the current location", ge=-90, le=90)
+    longitude: float = Field(..., description="Longitude of the current location", ge=-180, le=180)
 
 @app.post("/join-session")
 def join_session(details: join_sess):
     attendee_details=decode_jwt_token(details.tok)
     session_id=details.sessionid
+    latitude=details.latitude
+    longitude=details.longitude
+
+    latitude = round(latitude, 6)
+    longitude = round(longitude, 6)
+
+    print(latitude, longitude)
     
     if attendee_details["role"]=="admin":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not an attendee")
@@ -292,6 +301,21 @@ def join_session(details: join_sess):
             if not existing_session:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session does not exist")
             
+            control.execute("select Longitude, Latitude from SessionLocations where SessionID=%s;", (session_id,))
+
+            session_latitude = None
+            session_longitude = None
+
+            for x in control:
+                session_latitude = x[1]
+                session_longitude = x[0]
+
+            if session_latitude == None or session_longitude == None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session location not found")
+            
+            if abs(latitude - session_latitude) > 0.001 or abs(longitude - session_longitude) > 0.001:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You are not in the session location")
+
             control.execute("insert into Attended_By (UniqueID, SessionID) values (%s, %s);", (attendee_details["id"], session_id))
             connection.commit()
     
