@@ -317,6 +317,7 @@ def join_session(details: join_sess):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You are not in the session location")
 
             control.execute("insert into Attended_By (UniqueID, SessionID) values (%s, %s);", (attendee_details["id"], session_id))
+            control.execute("insert into attendeeslocations values (%s,%s,%s,%s)",(datetime.now(),longitude,latitude,attendee_details["id"]))
             connection.commit()
     
     return {"result":"Session joined successfully"}
@@ -386,9 +387,10 @@ def return_student_attendance(details: admin_check):
 
     with get_connection() as connection:
         with get_cursor(connection) as control:
-            control.execute("select sessions.starttime as starttime, sessions.endtime as endtime, sessionlocations.sessionid as sid, sessionlocations.longitude as longi, sessionlocations.latitude as lati from sessionlocations, sessions, attended_by where sessions.adminid = %s and sessions.sessionid=sessionlocations.sessionid and sessions.endtime<=%s and attended_by.uniqueid=%s and attended_by.sessionid=sessions.sessionid order by sessionlocations.sessionid",(adid,time_now,student_id))
-
-            t1=control.fetchall()
+            control.callproc('GetSessionDetails', (adid, time_now, student_id))
+            t1={}
+            for result in control.stored_results():
+                t1=result.fetchall()
 
             control.execute("select * from attendeeslocations where uniqueid=%s",(student_id,))
 
@@ -429,9 +431,9 @@ def check_your_attendance(details: identify):
 
     with get_connection() as connection:
         with get_cursor(connection) as control:
-            control.execute("select sessions.starttime as starttime, sessions.endtime as endtime, sessionlocations.sessionid as sid, sessionlocations.longitude as longi, sessionlocations.latitude as lati from sessionlocations, sessions, attended_by where sessions.sessionid=sessionlocations.sessionid and sessions.endtime<=%s and attended_by.uniqueid=%s and attended_by.sessionid=sessions.sessionid order by sessionlocations.sessionid",(time_now,student_id))
-
-            t1=control.fetchall()
+            control.callproc('GetSessionDetailsForStudent', (time_now,student_id))
+            for result in control.stored_results():
+                t1=result.fetchall()
 
             control.execute("select * from attendeeslocations where uniqueid=%s",(student_id,))
 
