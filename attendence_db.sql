@@ -59,35 +59,33 @@ create table Attended_By(
 
 DELIMITER //
 
-CREATE FUNCTION GetSessionDetails(
-    p_admin_id INT,
-    p_time_now DATETIME,
-    p_student_id INT
-) 
-RETURNS TABLE (
-    starttime DATETIME,
-    endtime DATETIME,
-    sid INT,
-    longi FLOAT(9,6),
-    lati FLOAT(8,6)
+CREATE PROCEDURE GetSessionDetails(
+    IN admin_id INT,
+    IN end_time DATETIME,
+    IN student_id INT
 )
 BEGIN
-    RETURN (
-        SELECT 
-            s.starttime,
-            s.endtime,
-            sl.sessionid as sid,
-            sl.longitude as longi,
-            sl.latitude as lati
-        FROM sessionlocations sl
-        JOIN sessions s ON s.sessionid = sl.sessionid
-        JOIN attended_by ab ON ab.sessionid = s.sessionid
-        WHERE s.adminid = p_admin_id
-        AND s.endtime <= p_time_now
-        AND ab.uniqueid = p_student_id
-        ORDER BY sl.sessionid
-    );
+    SELECT 
+        sessions.starttime AS starttime, 
+        sessions.endtime AS endtime, 
+        sessionlocations.sessionid AS sid, 
+        sessionlocations.longitude AS longi, 
+        sessionlocations.latitude AS lati 
+    FROM 
+        sessionlocations
+    JOIN 
+        sessions ON sessions.sessionid = sessionlocations.sessionid
+    JOIN 
+        attended_by ON attended_by.sessionid = sessions.sessionid
+    WHERE 
+        sessions.adminid = admin_id 
+        AND sessions.endtime <= end_time 
+        AND attended_by.uniqueid = student_id
+    ORDER BY 
+        sessionlocations.sessionid;
 END //
+
+DELIMITER ;
 
 DELIMITER //
 
@@ -114,8 +112,5 @@ BEGIN
     ORDER BY 
         sessionlocations.sessionid;
 END //
-
-DELIMITER ;
-
 
 DELIMITER ;
