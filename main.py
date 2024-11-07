@@ -366,6 +366,10 @@ def return_active_sessions(details: identify):
                 for x in control:
                     if x[0] not in r:
                         ret.append(x)
+                for i in range(len(ret)):
+                    control.execute("select Latitude, Longitude from sessionlocations where sessionid=%s",(ret[i][0],))
+                    for x in control:
+                        ret[i]=ret[i]+x
         if not ret:
             return{"sessions":[]}
         return {"sessions":ret}
@@ -543,3 +547,18 @@ def get_session_attendees(details: session_details):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session location not found")
     
     return {"starttime": starttime, "endtime": endtime, "address": address, "longitude": longitude, "latitude": latitude, "attendees": attendees}
+
+@app.post("/get-attended-sessions")
+def get_attended_sessions(details: identify):
+    identity = decode_jwt_token(details.tok)
+    if identity["role"] != "attendee":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not the authorized")
+    adid = identity["id"]
+    with get_connection() as connection:
+        with get_cursor(connection) as control:
+            control.execute("select sessions.sessionid, sessions.starttime, sessions.endtime, sessions.adminid, sessionlocations.latitude, sessionlocations.longitude from attended_by, sessions, sessionlocations where attended_by.uniqueid=%s and sessions.sessionid=attended_by.sessionid and sessions.sessionid=sessionlocations.sessionid order by sessions.starttime desc;",(adid,))
+            ret=[]
+            for x in control:
+                ret.append(x)
+            return {"sessions":ret}
+    return {"sessions":[]}
