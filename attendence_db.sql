@@ -114,3 +114,17 @@ BEGIN
 END //
 
 DELIMITER ;
+
+DELIMITER //
+CREATE TRIGGER validate_attendees_location
+BEFORE INSERT ON AttendeesLocations
+FOR EACH ROW
+BEGIN
+    DECLARE attendee_exists INT;
+    SELECT COUNT(*) INTO attendee_exists FROM Attendees WHERE UniqueID = NEW.UniqueID;
+    IF attendee_exists = 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Attendee does not exist.';
+    END IF;
+END;
+//
+DELIMITER ;
