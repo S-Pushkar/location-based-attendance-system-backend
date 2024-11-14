@@ -1,8 +1,10 @@
+from decimal import Decimal
 from fastapi import FastAPI, status, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, validator
 from dotenv import load_dotenv
-import mysql.connector
+import psycopg2
+from psycopg2 import pool
 from contextlib import contextmanager
 import bcrypt
 import os
@@ -25,33 +27,19 @@ app.add_middleware(
 
 load_dotenv('.env.local')
 
-SQL_HOST = os.getenv("SQL_HOST")
-SQL_USER = os.getenv("SQL_USER")
-SQL_PASSWORD = os.getenv("SQL_PASSWORD")
-SQL_DB = os.getenv("SQL_DB")
+SQL_URL=os.getenv("SQL_URL")
 JWT_SECRET = os.getenv("JWT_SECRET")
 ALGORITHM = 'HS256'
 
-dbconfig = {
-    "host": SQL_HOST,
-    "user": SQL_USER,
-    "password": SQL_PASSWORD,
-    "database": SQL_DB,
-    "pool_name": "mypool",
-    "pool_size": 5,
-    "pool_reset_session": True
-}
-
-
-connection_pool = mysql.connector.pooling.MySQLConnectionPool(**dbconfig)
+connection_pool = pool.SimpleConnectionPool(1, 5, dsn=SQL_URL)
 
 @contextmanager
 def get_connection():
-    connection = connection_pool.get_connection()
+    connection = connection_pool.getconn()
     try:
         yield connection
     finally:
-        connection.close()
+        connection_pool.putconn(connection)
 
 @contextmanager
 def get_cursor(connection):
@@ -69,15 +57,19 @@ def hello():
 def robots_begone():
     return {"User-agent":"*","Disallow":"/"}
 
+# def hash_password(password: str):
+#     salt = bcrypt.gensalt()
+#     hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
+#     return (hashed_password.decode('utf-8'),base64.b64encode(salt).decode('utf-8'))
+
 def hash_password(password: str):
-    salt = bcrypt.gensalt()
-    hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
-    return (hashed_password.decode('utf-8'),base64.b64encode(salt).decode('utf-8'))
-    
-def rehash(password: str, salt64: str):
-    salt=base64.b64decode(salt64.encode('utf-8'))
-    hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
+    hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
     return hashed_password.decode('utf-8')
+    
+# def rehash(password: str, salt64: str):
+#     salt=base64.b64decode(salt64.encode('utf-8'))
+#     hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
+#     return hashed_password.decode('utf-8')
 
 def create_jwt_token(data: dict):
     to_encode = data.copy()
@@ -103,28 +95,35 @@ curl -X POST "http://127.0.0.1:8000/auth/register-admin" \
 """
 @app.post("/auth/register-admin")
 def register_admin(admin: Admin):
-    email = admin.email.lower()     # Lowercase the email to avoid maintain consistency
+    email = admin.email.lower()  # Lowercase the email to maintain consistency
     fname = admin.fname
     lname = admin.lname
     password = admin.password
 
     with get_connection() as connection:
         with get_cursor(connection) as control:
-            control.execute("select 1 from Admins where Email = %s;", (email,))
+            # Check if admin already exists
+            control.execute("SELECT 1 FROM Admins WHERE Email = %s;", (email,))
             existing_admins = control.fetchone()
-
             if existing_admins:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Admin already exists")
             
+            # Hash password
             hashed_passwd = hash_password(password)
             
-            control.execute("insert into Admins (Email, FirstName, LastName, Passwd, Salt) values (%s, %s, %s, %s, %s);", (email, fname, lname, hashed_passwd[0], hashed_passwd[1]))
-            last_row_id = control.lastrowid
+            # Insert new admin and get the ID
+            control.execute(
+                "INSERT INTO Admins (Email, FirstName, LastName, Passwd) VALUES (%s, %s, %s, %s) RETURNING AdminID;",
+                (email, fname, lname, hashed_passwd)
+            )
+            last_row_id = control.fetchone()[0]
             connection.commit()
 
-    access_token = create_jwt_token({"id":last_row_id,"email": email, "role": "admin", "fname": fname, "lname": lname})
+    # Generate JWT token
+    access_token = create_jwt_token({"id": last_row_id, "email": email, "role": "admin", "fname": fname, "lname": lname})
     return {"access_token": access_token}
 
+# Attendee model
 class Attendee(BaseModel):
     email: EmailStr = Field(..., description="Email of the attendee")
     fname: str = Field(..., description="First name of the attendee")
@@ -132,6 +131,7 @@ class Attendee(BaseModel):
     password: str = Field(..., description="Unhashed Password of the attendee")
     address: str = Field(..., description="Address of the attendee")
 
+# Register attendee endpoint
 @app.post("/auth/register-attendee")
 def register_attendee(attendee: Attendee):
     email = attendee.email.lower()
@@ -142,56 +142,77 @@ def register_attendee(attendee: Attendee):
 
     with get_connection() as connection:
         with get_cursor(connection) as control:
-            control.execute("select 1 from Attendees where Email = %s;", (email,))
+            # Check if attendee already exists
+            control.execute("SELECT 1 FROM Attendees WHERE Email = %s;", (email,))
             existing_attendees = control.fetchone()
             if existing_attendees:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Attendee already exists")
             
+            # Hash password
             hashed_passwd = hash_password(password)
 
-            control.execute("insert into Attendees (Email, Fname, Lname, Passwd, Salt, Address) values (%s, %s, %s, %s, %s, %s);", (email, fname, lname, hashed_passwd[0], hashed_passwd[1], address))
-            last_row_id = control.lastrowid
+            # Insert new attendee and get the ID
+            control.execute(
+                "INSERT INTO Attendees (Email, Fname, Lname, Passwd, Address) VALUES (%s, %s, %s, %s, %s) RETURNING UniqueID;",
+                (email, fname, lname, hashed_passwd, address)
+            )
+            last_row_id = control.fetchone()[0]
             connection.commit()
     
-    access_token = create_jwt_token({"id":last_row_id,"email": email, "role": "attendee", "fname": fname, "lname": lname})
+    # Generate JWT token
+    access_token = create_jwt_token({"id": last_row_id, "email": email, "role": "attendee", "fname": fname, "lname": lname})
     return {"access_token": access_token}
-    
-class login(BaseModel):
-    email: EmailStr = Field(..., description="Email of the admin or atttendee")
-    password: str = Field(..., description="Unhashed Password of the admin or attendee")
-    
 
+# Login model
+class Login(BaseModel):
+    email: EmailStr = Field(..., description="Email of the admin or attendee")
+    password: str = Field(..., description="Unhashed Password of the admin or attendee")
+
+# Admin login endpoint
 @app.post("/auth/login-admin")
-def login_admin(details: login):
+def login_admin(details: Login):
     email = details.email.lower()
     password = details.password
 
     with get_connection() as connection:
         with get_cursor(connection) as control:
-            control.execute("select AdminID, FirstName, LastName, Passwd, Salt from Admins where Email=%s;", (email,))
+            # Check if admin exists and verify password
+            control.execute("SELECT AdminID, FirstName, LastName, Passwd FROM Admins WHERE Email = %s;", (email,))
+            match = control.fetchone()
+            print(match)
+            if match and bcrypt.checkpw(password.encode('utf-8'), match[3].strip().encode('utf-8')):  # Verify hashed password
+                access_token = create_jwt_token({
+                    "id": match[0],
+                    "email": email,
+                    "role": "admin",
+                    "fname": match[1],
+                    "lname": match[2]
+                })
+                return {"access_token": access_token}
 
-            for match in control:
-                if rehash(password,match[4])==match[3]:
-                    access_token=create_jwt_token({"id":match[0],"email":email, "role":"admin","fname":match[1],"lname":match[2]})
-                    return {"access_token":access_token}
-
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Please first sign up")
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Please sign up first")
 
 @app.post("/auth/login-attendee")
-def login_attendee(details: login):
+def login_attendee(details: Login):
     email = details.email.lower()
     password = details.password
 
     with get_connection() as connection:
         with get_cursor(connection) as control:
-            control.execute("select UniqueID, Fname, Lname, Passwd, Salt from Attendees where Email=%s;", (email,))
+            # Check if attendee exists and verify password
+            control.execute("SELECT UniqueID, Fname, Lname, Passwd FROM Attendees WHERE Email = %s;", (email,))
+            match = control.fetchone()
+            if match and bcrypt.checkpw(password.encode('utf-8'), match[3].strip().encode('utf-8')):  # Verify hashed password
+                access_token = create_jwt_token({
+                    "id": match[0],
+                    "email": email,
+                    "role": "attendee",
+                    "fname": match[1],
+                    "lname": match[2]
+                })
+                return {"access_token": access_token}
 
-            for match in control:
-                if rehash(password,match[4])==match[3]:
-                    access_token=create_jwt_token({"id":match[0],"email":email, "role":"attendee","fname":match[1],"lname":match[2]})
-                    return {"access_token":access_token}
-
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Please first sign up")
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Please sign up first")
 
 class session_locs(BaseModel):
     address: str = Field(..., description="Address of a session location", min_length=0, max_length=100)
@@ -216,33 +237,38 @@ class add_locs(BaseModel):
     locs: Optional[Tuple[session_locs, ...]] = Field(..., description="A tuple with the session locations for this session")
 
 @app.post("/create-session")
-def create_sesion(details: create_session_info):
-    admin_details=decode_jwt_token(details.tok)
-    start_time=datetime.strptime(details.start_time, '%Y-%m-%d %H:%M:%S')
-    end_time=datetime.strptime(details.end_time, '%Y-%m-%d %H:%M:%S')
-    locations=details.locs
-    
-    if admin_details["role"]!="admin":
+def create_session(details: create_session_info):
+    admin_details = decode_jwt_token(details.tok)
+    start_time = datetime.strptime(details.start_time, '%Y-%m-%d %H:%M:%S')
+    end_time = datetime.strptime(details.end_time, '%Y-%m-%d %H:%M:%S')
+    locations = details.locs
+
+    if admin_details["role"] != "admin":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not an admin")
-    
+
     with get_connection() as connection:
         with get_cursor(connection) as control:
-            existing_admin = control.execute("select 1 from Admins where AdminID=%s;", (admin_details["id"],))
+            control.execute("SELECT 1 FROM Admins WHERE AdminID = %s;", (admin_details["id"],))
             existing_admin = control.fetchone()
             if not existing_admin:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin does not exist")
-            
-            if start_time>=end_time:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ensure the session start and end times are corect")
-            
-            control.execute("insert into Sessions (StartTime, EndTime, AdminID) values (%s, %s, %s);", (start_time, end_time, admin_details["id"]))
 
-            session_id=control.lastrowid
+            if start_time >= end_time:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ensure the session start and end times are correct")
+
+            control.execute(
+                "INSERT INTO Sessions (StartTime, EndTime, AdminID) VALUES (%s, %s, %s) RETURNING SessionID;",
+                (start_time, end_time, admin_details["id"])
+            )
+            session_id = control.fetchone()[0]
             connection.commit()
-            
+
             for x in locations:
-                control.execute("insert into SessionLocations (Address, Longitude, Latitude, SessionID) values (%s, %s, %s, %s);", (x.address, x.longitude, x.latitude, session_id))
-                connection.commit()
+                control.execute(
+                    "INSERT INTO SessionLocations (Address, Longitude, Latitude, SessionID) VALUES (%s, %s, %s, %s);",
+                    (x.address, x.longitude, x.latitude, session_id)
+                )
+            connection.commit()
 
     return {"result": "Session successfully created"}
 
@@ -276,54 +302,57 @@ class join_sess(BaseModel):
 
 @app.post("/join-session")
 def join_session(details: join_sess):
-    attendee_details=decode_jwt_token(details.tok)
-    session_id=details.sessionid
-    latitude=details.latitude
-    longitude=details.longitude
+    attendee_details = decode_jwt_token(details.tok)
+    session_id = details.sessionid
+    latitude = round(details.latitude, 6)
+    longitude = round(details.longitude, 6)
 
-    latitude = round(latitude, 6)
-    longitude = round(longitude, 6)
-
-    print(latitude, longitude)
-    
-    if attendee_details["role"]=="admin":
+    if attendee_details["role"] == "admin":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not an attendee")
     
     with get_connection() as connection:
         with get_cursor(connection) as control:
-            control.execute("select 1 from Attendees where UniqueID=%s;", (attendee_details["id"],))
+            # Check if attendee exists
+            control.execute("SELECT 1 FROM Attendees WHERE UniqueID = %s;", (attendee_details["id"],))
             existing_attendee = control.fetchone()
             if not existing_attendee:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attendee does not exist")
             
-            control.execute("select StartTime, EndTime from Sessions where SessionID=%s;", (session_id,))
+            # Check if session exists and is active
+            control.execute("SELECT StartTime, EndTime FROM Sessions WHERE SessionID = %s;", (session_id,))
             existing_session = control.fetchone()
             if not existing_session:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session does not exist")
             
-            if datetime.now() < existing_session[0] or datetime.now() > existing_session[1]:
+            start_time, end_time = existing_session
+            start_time = start_time.replace(tzinfo=timezone.utc)
+            end_time = end_time.replace(tzinfo=timezone.utc)
+            current_time = datetime.now().replace(tzinfo=timezone.utc)
+            if current_time < start_time or current_time > end_time:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Session not active")
             
-            control.execute("select Longitude, Latitude from SessionLocations where SessionID=%s;", (session_id,))
-
-            session_latitude = None
-            session_longitude = None
-
-            for x in control:
-                session_latitude = x[1]
-                session_longitude = x[0]
-
-            if session_latitude == None or session_longitude == None:
+            # Check if the attendee is within session location
+            control.execute("SELECT Longitude, Latitude FROM SessionLocations WHERE SessionID = %s;", (session_id,))
+            session_location = control.fetchone()
+            if not session_location:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session location not found")
-            
-            if abs(latitude - session_latitude) > 0.001 or abs(longitude - session_longitude) > 0.001:
+
+            session_longitude, session_latitude = session_location
+            if abs(Decimal(latitude) - Decimal(session_latitude)) > Decimal('0.001') or abs(Decimal(longitude) - Decimal(session_longitude)) > Decimal('0.001'):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You are not in the session location")
 
-            control.execute("insert into Attended_By (UniqueID, SessionID) values (%s, %s);", (attendee_details["id"], session_id))
-            control.execute("insert into AttendeesLocations values (%s,%s,%s,%s)",(datetime.now(),longitude,latitude,attendee_details["id"]))
+            # Record attendance in 'Attended_By' and location in 'AttendeesLocations'
+            control.execute(
+                "INSERT INTO Attended_By (UniqueID, SessionID) VALUES (%s, %s);", 
+                (attendee_details["id"], session_id)
+            )
+            control.execute(
+                "INSERT INTO AttendeesLocations (LocationTimestamp, Longitude, Latitude, UniqueID) VALUES (NOW(), %s, %s, %s);", 
+                (longitude, latitude, attendee_details["id"])
+            )
             connection.commit()
     
-    return {"result":"Session joined successfully"}
+    return {"result": "Session joined successfully"}
     
 class curr_loc(BaseModel):
     tok: str = Field(..., description="JWT token from the client") 
