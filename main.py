@@ -149,7 +149,7 @@ def register_attendee(attendee: Attendee):
             
             hashed_passwd = hash_password(password)
 
-            control.execute("insert into Attendees (Email, FName, LName, Passwd, Salt, Address) values (%s, %s, %s, %s, %s, %s);", (email, fname, lname, hashed_passwd[0], hashed_passwd[1], address))
+            control.execute("insert into Attendees (Email, Fname, Lname, Passwd, Salt, Address) values (%s, %s, %s, %s, %s, %s);", (email, fname, lname, hashed_passwd[0], hashed_passwd[1], address))
             last_row_id = control.lastrowid
             connection.commit()
     
@@ -184,7 +184,7 @@ def login_attendee(details: login):
 
     with get_connection() as connection:
         with get_cursor(connection) as control:
-            control.execute("select UniqueID, FName, LName, Passwd, Salt from Attendees where Email=%s;", (email,))
+            control.execute("select UniqueID, Fname, Lname, Passwd, Salt from Attendees where Email=%s;", (email,))
 
             for match in control:
                 if rehash(password,match[4])==match[3]:
@@ -296,10 +296,13 @@ def join_session(details: join_sess):
             if not existing_attendee:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attendee does not exist")
             
-            control.execute("select 1 from Sessions where SessionID=%s;", (session_id,))
+            control.execute("select StartTime, EndTime from Sessions where SessionID=%s;", (session_id,))
             existing_session = control.fetchone()
             if not existing_session:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session does not exist")
+            
+            if datetime.now() < existing_session[0] or datetime.now() > existing_session[1]:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Session not active")
             
             control.execute("select Longitude, Latitude from SessionLocations where SessionID=%s;", (session_id,))
 
@@ -317,7 +320,7 @@ def join_session(details: join_sess):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You are not in the session location")
 
             control.execute("insert into Attended_By (UniqueID, SessionID) values (%s, %s);", (attendee_details["id"], session_id))
-            control.execute("insert into attendeeslocations values (%s,%s,%s,%s)",(datetime.now(),longitude,latitude,attendee_details["id"]))
+            control.execute("insert into AttendeesLocations values (%s,%s,%s,%s)",(datetime.now(),longitude,latitude,attendee_details["id"]))
             connection.commit()
     
     return {"result":"Session joined successfully"}
@@ -359,15 +362,15 @@ def return_active_sessions(details: identify):
             with get_cursor(connection) as control:
                 r=[]
                 if identity["role"]=="attendee":
-                    control.execute("select sessionid from attended_by where uniqueid=%s",(identity["id"],))
+                    control.execute("select SessionID from Attended_By where UniqueID=%s",(identity["id"],))
                     r=control.fetchall()
                     r=[x[0] for x in r]
-                control.execute("select * from sessions where EndTime > %s",(rn,))
+                control.execute("select * from Sessions where EndTime > %s and StartTime <= %s order by StartTime desc;",(rn,rn))
                 for x in control:
                     if x[0] not in r:
                         ret.append(x)
                 for i in range(len(ret)):
-                    control.execute("select Latitude, Longitude from sessionlocations where sessionid=%s",(ret[i][0],))
+                    control.execute("select Latitude, Longitude from SessionLocations where SessionID=%s",(ret[i][0],))
                     for x in control:
                         ret[i]=ret[i]+x
         if not ret:
@@ -396,7 +399,7 @@ def return_student_attendance(details: admin_check):
             for result in control.stored_results():
                 t1=result.fetchall()
 
-            control.execute("select * from attendeeslocations where uniqueid=%s",(student_id,))
+            control.execute("select * from AttendeesLocations where UniqueID=%s",(student_id,))
 
             t2=control.fetchall()
 
@@ -439,7 +442,7 @@ def check_your_attendance(details: identify):
             for result in control.stored_results():
                 t1=result.fetchall()
 
-            control.execute("select * from attendeeslocations where uniqueid=%s",(student_id,))
+            control.execute("select * from AttendeesLocations where UniqueID=%s",(student_id,))
 
             t2=control.fetchall()
 
@@ -476,7 +479,7 @@ def get_sessions_created(details: identify):
     try:
         with get_connection() as connection:
             with get_cursor(connection) as control:
-                control.execute("select sessionid, starttime, endtime from sessions where adminid=%s order by starttime desc;", (adid,))
+                control.execute("select SessionID, StartTime, EndTime from Sessions where AdminID=%s order by StartTime desc;", (adid,))
                 result = control.fetchall()
                 return result
     except:
@@ -491,7 +494,7 @@ def get_joined_sessions(details: identify):
     adid = identity["id"]
     with get_connection() as connection:
         with get_cursor(connection) as control:
-            control.execute("select sessions.sessionid, sessions.starttime, sessions.endtime, sessions.adminid from attended_by, sessions where attended_by.uniqueid=%s and sessions.sessionid=attended_by.sessionid",(adid,))
+            control.execute("select Sessions.SessionID, Sessions.StartTime, Sessions.EndTime, Sessions.AdminID from Attended_By, Sessions where Attended_By.UniqueID=%s and Sessions.SessionID=Attended_By.SessionID",(adid,))
             ret=[]
             for x in control:
                 ret.append(x)
@@ -519,7 +522,7 @@ def get_session_attendees(details: session_details):
     
     with get_connection() as connection:
         with get_cursor(connection) as control:
-            control.execute("select StartTime, EndTime, AdminID from sessions where SessionID=%s and AdminID=%s;", (sessionid, identity["id"]))
+            control.execute("select StartTime, EndTime, AdminID from Sessions where SessionID=%s and AdminID=%s;", (sessionid, identity["id"]))
             match = control.fetchone()
 
             if not match:
@@ -535,7 +538,7 @@ def get_session_attendees(details: session_details):
             longitude = data[0][1]
             latitude = data[0][2]
 
-            control.execute("select a.email, a.fname, a.lname from attendees a, attended_by ab where ab.uniqueid=a.uniqueid and ab.sessionid=%s;", (sessionid,))
+            control.execute("select a.Email, a.Fname, a.Lname from Attendees a, Attended_By ab where ab.UniqueID=a.UniqueID and ab.SessionID=%s;", (sessionid,))
 
             for x in control:
                 attendees.append({"email": x[0], "fname": x[1], "lname": x[2]})
@@ -556,7 +559,7 @@ def get_attended_sessions(details: identify):
     adid = identity["id"]
     with get_connection() as connection:
         with get_cursor(connection) as control:
-            control.execute("select sessions.sessionid, sessions.starttime, sessions.endtime, sessions.adminid, sessionlocations.latitude, sessionlocations.longitude from attended_by, sessions, sessionlocations where attended_by.uniqueid=%s and sessions.sessionid=attended_by.sessionid and sessions.sessionid=sessionlocations.sessionid order by sessions.starttime desc;",(adid,))
+            control.execute("select Sessions.SessionID, Sessions.StartTime, Sessions.EndTime, Sessions.AdminID, SessionLocations.Latitude, SessionLocations.Longitude from Attended_By, Sessions, SessionLocations where Attended_By.UniqueID=%s and Sessions.SessionID=Attended_By.SessionID and Sessions.SessionID=SessionLocations.SessionID order by Sessions.StartTime desc;",(adid,))
             ret=[]
             for x in control:
                 ret.append(x)
