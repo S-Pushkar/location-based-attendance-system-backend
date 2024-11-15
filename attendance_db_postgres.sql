@@ -1,17 +1,15 @@
-\c Attend_DB;
-
 CREATE TABLE Admins (
     AdminID SERIAL PRIMARY KEY,
     Email VARCHAR(50),
     FirstName VARCHAR(15),
     LastName VARCHAR(15),
-    Passwd CHAR(64),
+    Passwd CHAR(64)
 );
 
 CREATE TABLE Sessions (
     SessionID SERIAL PRIMARY KEY,
-    StartTime TIMESTAMPTZ,
-    EndTime TIMESTAMPTZ,
+    StartTime TIMESTAMP,
+    EndTime TIMESTAMP,
     AdminID INT REFERENCES Admins(AdminID)
 );
 
@@ -25,7 +23,7 @@ CREATE TABLE Attendees (
 );
 
 CREATE TABLE AttendeesLocations (
-    LocationTimestamp TIMESTAMPTZ,
+    LocationTimestamp TIMESTAMP,
     Longitude NUMERIC(9, 6),
     Latitude NUMERIC(8, 6),
     UniqueID INT REFERENCES Attendees(UniqueID)
@@ -48,7 +46,7 @@ CREATE TABLE Attended_By (
 -- Stored procedure for GetSessionDetails
 CREATE OR REPLACE PROCEDURE GetSessionDetails(
     IN admin_id INT,
-    IN end_time TIMESTAMPTZ,
+    IN end_time TIMESTAMP,
     IN student_id INT
 )
 LANGUAGE plpgsql
@@ -77,7 +75,7 @@ $$;
 
 -- Stored procedure for GetSessionDetailsForStudent
 CREATE OR REPLACE PROCEDURE GetSessionDetailsForStudent(
-    IN end_time TIMESTAMPTZ,
+    IN end_time TIMESTAMP,
     IN student_id INT
 )
 LANGUAGE plpgsql

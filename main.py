@@ -3,14 +3,12 @@ from fastapi import FastAPI, status, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, validator
 from dotenv import load_dotenv
-import psycopg2
 from psycopg2 import pool
 from contextlib import contextmanager
 import bcrypt
 import os
 from jose import jwt
 from datetime import datetime, timedelta, timezone
-import base64
 from typing import Tuple, Optional
 from datetime import datetime
 import re
