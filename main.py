@@ -64,7 +64,7 @@ def create_jwt_token(data: dict):
     to_encode = data.copy()
     # Add 14 days to the current time in IST and format the result
     exp_time = datetime.now(timezone("Asia/Kolkata")) + timedelta(days=14)
-    to_encode.update({"exp": exp_time.strftime('%Y-%m-%d %H:%M:%S')})
+    to_encode.update({"exp": exp_time})
     encoded_jwt = jwt.encode(to_encode, JWT_SECRET, algorithm=ALGORITHM)
     return encoded_jwt
 
