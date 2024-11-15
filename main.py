@@ -56,23 +56,15 @@ def hello():
 def robots_begone():
     return {"User-agent":"*","Disallow":"/"}
 
-# def hash_password(password: str):
-#     salt = bcrypt.gensalt()
-#     hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
-#     return (hashed_password.decode('utf-8'),base64.b64encode(salt).decode('utf-8'))
-
 def hash_password(password: str):
     hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
     return hashed_password.decode('utf-8')
-    
-# def rehash(password: str, salt64: str):
-#     salt=base64.b64decode(salt64.encode('utf-8'))
-#     hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
-#     return hashed_password.decode('utf-8')
 
 def create_jwt_token(data: dict):
     to_encode = data.copy()
-    to_encode.update({"exp": datetime.now(timezone("Asia/Kolkata")).strftime('%Y-%m-%d %H:%M:%S') + timedelta(days=14)})
+    # Add 14 days to the current time in IST and format the result
+    exp_time = datetime.now(timezone("Asia/Kolkata")) + timedelta(days=14)
+    to_encode.update({"exp": exp_time.strftime('%Y-%m-%d %H:%M:%S')})
     encoded_jwt = jwt.encode(to_encode, JWT_SECRET, algorithm=ALGORITHM)
     return encoded_jwt
 
