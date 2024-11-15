@@ -1,6 +1,6 @@
 CREATE TABLE Admins (
     AdminID SERIAL PRIMARY KEY,
-    Email VARCHAR(50),
+    Email VARCHAR(50) UNIQUE,
     FirstName VARCHAR(15),
     LastName VARCHAR(15),
     Passwd CHAR(64)
@@ -15,7 +15,7 @@ CREATE TABLE Sessions (
 
 CREATE TABLE Attendees (
     UniqueID SERIAL PRIMARY KEY,
-    Email VARCHAR(50),
+    Email VARCHAR(50) UNIQUE,
     Fname VARCHAR(15),
     Lname VARCHAR(15),
     Passwd CHAR(64),
