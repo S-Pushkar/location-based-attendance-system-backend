@@ -29,7 +29,7 @@ SQL_URL=os.getenv("SQL_URL")
 JWT_SECRET = os.getenv("JWT_SECRET")
 ALGORITHM = 'HS256'
 
-connection_pool = pool.SimpleConnectionPool(1, 5, dsn=SQL_URL)
+connection_pool = pool.SimpleConnectionPool(1, 30, dsn=SQL_URL)
 
 @contextmanager
 def get_connection():
