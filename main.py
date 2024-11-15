@@ -315,7 +315,7 @@ def join_session(details: join_sess):
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session does not exist")
             
             start_time, end_time = existing_session
-            current_time = datetime.now(timezone("Asia/Kolkata")).strftime('%Y-%m-%d %H:%M:%S')
+            current_time = datetime.now(timezone("Asia/Kolkata"))
             if current_time < start_time or current_time > end_time:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Session not active")
             
