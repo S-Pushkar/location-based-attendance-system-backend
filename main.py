@@ -71,7 +71,7 @@ def hash_password(password: str):
 
 def create_jwt_token(data: dict):
     to_encode = data.copy()
-    to_encode.update({"exp": datetime.now().replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=5, minutes=30))) + timedelta(days=14)})
+    to_encode.update({"exp": datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=5, minutes=30))) + timedelta(days=14)})
     encoded_jwt = jwt.encode(to_encode, JWT_SECRET, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -324,7 +324,7 @@ def join_session(details: join_sess):
             start_time, end_time = existing_session
             start_time = start_time.replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=5, minutes=30)))
             end_time = end_time.replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=5, minutes=30)))
-            current_time = datetime.now().replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=5, minutes=30)))
+            current_time = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=5, minutes=30)))
             if current_time < start_time or current_time > end_time:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Session not active")
             
@@ -345,7 +345,7 @@ def join_session(details: join_sess):
             )
             control.execute(
                 "INSERT INTO AttendeesLocations (LocationTimestamp, Longitude, Latitude, UniqueID) VALUES (%s, %s, %s, %s);", 
-                (datetime.now().replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=5, minutes=30))), longitude, latitude, attendee_details["id"])
+                (datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=5, minutes=30))), longitude, latitude, attendee_details["id"])
             )
             connection.commit()
     
@@ -370,7 +370,7 @@ def store_current_location(position: curr_loc):
             if not existing_attendee:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attendee does not exist")
             
-            control.execute("insert into AttendeesLocations (UniqueID, Latitude, Longitude, LocationTimestamp) values (%s, %s, %s, %s);", (attendee_details["id"], position.latitude, position.longitude, datetime.now().replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=5, minutes=30)))))
+            control.execute("insert into AttendeesLocations (UniqueID, Latitude, Longitude, LocationTimestamp) values (%s, %s, %s, %s);", (attendee_details["id"], position.latitude, position.longitude, datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=5, minutes=30)))))
             connection.commit()
     
     return {"Status":"Location recieved"}
@@ -382,7 +382,7 @@ class identify(BaseModel):
 def return_active_sessions(details: identify):
     identity=decode_jwt_token(details.tok)
     if identity["role"]=="admin" or identity["role"]=="attendee":
-        rn=datetime.now().replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=5, minutes=30)))
+        rn=datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=5, minutes=30)))
         ret = []
         with get_connection() as connection:
             with get_cursor(connection) as control:
@@ -416,7 +416,7 @@ def return_student_attendance(details: admin_check):
     if admin_details["role"]!="admin":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not the authorized")
     adid=admin_details["id"]
-    time_now=datetime.now().replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=5, minutes=30)))
+    time_now=datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=5, minutes=30)))
 
     with get_connection() as connection:
         with get_cursor(connection) as control:
@@ -460,7 +460,7 @@ def check_your_attendance(details: identify):
     student_id=identity["id"]
     if identity["role"]!="attendee":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not the authorized")
-    time_now=datetime.now().replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=5, minutes=30)))
+    time_now=datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=5, minutes=30)))
 
     with get_connection() as connection:
         with get_cursor(connection) as control:
