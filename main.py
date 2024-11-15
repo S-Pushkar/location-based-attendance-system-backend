@@ -71,7 +71,7 @@ def hash_password(password: str):
 
 def create_jwt_token(data: dict):
     to_encode = data.copy()
-    to_encode.update({"exp": datetime.now() + timedelta(days=14)})
+    to_encode.update({"exp": datetime.now().replace(tzinfo=None) + timedelta(days=14)})
     encoded_jwt = jwt.encode(to_encode, JWT_SECRET, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -177,7 +177,6 @@ def login_admin(details: Login):
             # Check if admin exists and verify password
             control.execute("SELECT AdminID, FirstName, LastName, Passwd FROM Admins WHERE Email = %s;", (email,))
             match = control.fetchone()
-            print(match)
             if match and bcrypt.checkpw(password.encode('utf-8'), match[3].strip().encode('utf-8')):  # Verify hashed password
                 access_token = create_jwt_token({
                     "id": match[0],
@@ -345,8 +344,8 @@ def join_session(details: join_sess):
                 (attendee_details["id"], session_id)
             )
             control.execute(
-                "INSERT INTO AttendeesLocations (LocationTimestamp, Longitude, Latitude, UniqueID) VALUES (NOW(), %s, %s, %s);", 
-                (longitude, latitude, attendee_details["id"])
+                "INSERT INTO AttendeesLocations (LocationTimestamp, Longitude, Latitude, UniqueID) VALUES (%s, %s, %s, %s);", 
+                (datetime.now().replace(tzinfo=None), longitude, latitude, attendee_details["id"])
             )
             connection.commit()
     
@@ -371,7 +370,7 @@ def store_current_location(position: curr_loc):
             if not existing_attendee:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attendee does not exist")
             
-            control.execute("insert into AttendeesLocations (UniqueID, Latitude, Longitude, LocationTimestamp) values (%s, %s, %s, %s);", (attendee_details["id"], position.latitude, position.longitude, datetime.now()))
+            control.execute("insert into AttendeesLocations (UniqueID, Latitude, Longitude, LocationTimestamp) values (%s, %s, %s, %s);", (attendee_details["id"], position.latitude, position.longitude, datetime.now().replace(tzinfo=None)))
             connection.commit()
     
     return {"Status":"Location recieved"}
@@ -383,7 +382,7 @@ class identify(BaseModel):
 def return_active_sessions(details: identify):
     identity=decode_jwt_token(details.tok)
     if identity["role"]=="admin" or identity["role"]=="attendee":
-        rn=datetime.now()
+        rn=datetime.now().replace(tzinfo=None)
         ret = []
         with get_connection() as connection:
             with get_cursor(connection) as control:
@@ -417,7 +416,7 @@ def return_student_attendance(details: admin_check):
     if admin_details["role"]!="admin":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not the authorized")
     adid=admin_details["id"]
-    time_now=datetime.now()
+    time_now=datetime.now().replace(tzinfo=None)
 
     with get_connection() as connection:
         with get_cursor(connection) as control:
@@ -461,7 +460,7 @@ def check_your_attendance(details: identify):
     student_id=identity["id"]
     if identity["role"]!="attendee":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not the authorized")
-    time_now=datetime.now()
+    time_now=datetime.now().replace(tzinfo=None)
 
     with get_connection() as connection:
         with get_cursor(connection) as control:
